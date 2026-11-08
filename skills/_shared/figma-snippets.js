@@ -39,6 +39,14 @@ const pads = (p) => {
 
 const isAuto = (n) => n && 'layoutMode' in n && n.layoutMode !== 'NONE';
 
+// Absolute placement: o.abs pins a child of an auto-layout parent; x, y, bottom place it.
+const pin = (n, parent, o) => {
+  if (o.abs && isAuto(parent)) n.layoutPositioning = 'ABSOLUTE';
+  if (o.x !== undefined) n.x = o.x;
+  if (o.y !== undefined) n.y = o.y;
+  if (o.bottom !== undefined && parent) n.y = parent.height - o.bottom - n.height;
+};
+
 // Installed font families matching a regex: { family: [styles] }.
 async function fonts(re) {
   const all = await figma.listAvailableFontsAsync();
@@ -51,7 +59,8 @@ async function fonts(re) {
 }
 
 // Text node. o: family, style, size, color (hex or variable), width, fillW, lineHeight (%),
-// letterSpacing (%), align, name, textStyleId.
+// letterSpacing (%), align, name, textStyleId, abs (pinned inside an auto-layout parent), x, y,
+// bottom (distance from the parent's bottom edge, applied after sizing).
 async function T(parent, chars, o = {}) {
   const family = o.family || 'Inter';
   const style = o.style || 'Regular';
@@ -75,11 +84,13 @@ async function T(parent, chars, o = {}) {
     t.layoutSizingHorizontal = 'FILL';
   }
   if (o.textStyleId) await t.setTextStyleIdAsync(o.textStyleId);
+  pin(t, parent, o);
   return t;
 }
 
 // Auto-layout frame. o: dir ('V' | 'H'), gap, pad (n | [v,h] | [t,r,b,l]), fill, stroke,
-// strokeW, radius, main, cross (MIN | CENTER | MAX | SPACE_BETWEEN), w, h, fillW, grow, name, clip.
+// strokeW, radius, main, cross (MIN | CENTER | MAX | SPACE_BETWEEN), w, h, fillW, grow, name, clip,
+// abs, x, y, bottom (see pin).
 function stack(parent, o = {}) {
   const f = figma.createFrame();
   f.name = o.name || 'stack';
@@ -112,10 +123,11 @@ function stack(parent, o = {}) {
   }
   if (o.fillW && isAuto(parent)) f.layoutSizingHorizontal = 'FILL';
   if (o.grow && isAuto(parent)) f.layoutGrow = 1;
+  pin(f, parent, o);
   return f;
 }
 
-// Plain rectangle. o: w, h, fill, radius, name, abs (absolute inside auto-layout), x, y, opacity.
+// Plain rectangle. o: w, h, fill, radius, name, opacity, abs, x, y, bottom (see pin).
 function rect(parent, o = {}) {
   const r = figma.createRectangle();
   r.name = o.name || 'rect';
@@ -123,9 +135,7 @@ function rect(parent, o = {}) {
   r.fills = o.fill ? [paint(o.fill, o.opacity)] : [];
   r.cornerRadius = o.radius || 0;
   if (parent) parent.appendChild(r);
-  if (o.abs && isAuto(parent)) r.layoutPositioning = 'ABSOLUTE';
-  if (o.x !== undefined) r.x = o.x;
-  if (o.y !== undefined) r.y = o.y;
+  pin(r, parent, o);
   return r;
 }
 
@@ -142,8 +152,8 @@ function newSection(name, w = 2000, h = 1200) {
   return s;
 }
 
-// Grow a Section to wrap its children with padding.
-function fitSection(s, pad = 160) {
+// Resize a Section to wrap its children. Place children from (80, 80) so the margins match.
+function fitSection(s, pad = 80) {
   let w = 0;
   let h = 0;
   for (const c of s.children) {
@@ -191,7 +201,39 @@ async function solidColor(p) {
   return p.color;
 }
 
-// Checks text contrast, minimum size, emoji and overflow past a clipping ancestor.
+const topSolid = (n) => {
+  if (!('fills' in n) || !Array.isArray(n.fills)) return null;
+  const solids = n.fills.filter((x) => x.type === 'SOLID' && x.visible !== false);
+  return solids.length ? solids[solids.length - 1] : null;
+};
+
+// "Source over" compositing of a top color (alpha ta) on a bottom color (alpha ba).
+const over = (top, ta, bottom, ba) => {
+  const out = ta + ba * (1 - ta);
+  if (out <= 0) return { c: top, a: 0 };
+  const ch = (k) => (top[k] * ta + bottom[k] * ba * (1 - ta)) / out;
+  return { c: { r: ch('r'), g: ch('g'), b: ch('b') }, a: out };
+};
+
+// The color a viewer sees for a layer of color c (alpha a) painted as content of `node`,
+// composited through the solid fills and opacities of its ancestors and the page background.
+// Sibling shapes and images behind the node are not seen here: check those on a screenshot.
+async function seen(node, c, a) {
+  let cur = { c: c || { r: 0, g: 0, b: 0 }, a: c ? a : 0 };
+  for (let p = node.parent; p && p.type !== 'PAGE' && p.type !== 'DOCUMENT'; p = p.parent) {
+    const pf = topSolid(p);
+    if (pf) {
+      const fc = await solidColor(pf);
+      cur = over(cur.c, cur.a, fc, pf.opacity === undefined ? 1 : pf.opacity);
+    }
+    if ('opacity' in p) cur.a *= p.opacity;
+  }
+  const pageBg = figma.currentPage.backgrounds.find((b) => b.type === 'SOLID');
+  return over(cur.c, cur.a, pageBg ? pageBg.color : { r: 1, g: 1, b: 1 }, 1).c;
+}
+
+// Checks text contrast (opacity included), minimum size, emoji and overflow past a clipping
+// ancestor.
 async function lint(rootId, o = {}) {
   const minSize = o.minSize || 12;
   const root = await figma.getNodeByIdAsync(rootId);
@@ -202,16 +244,11 @@ async function lint(rootId, o = {}) {
     if (!t.visible) continue;
     const size = typeof t.fontSize === 'number' ? t.fontSize : minSize;
     const label = t.id + ' "' + t.characters.slice(0, 30) + '"';
-    const fill = Array.isArray(t.fills) ? t.fills.find((p) => p.type === 'SOLID' && p.visible !== false) : null;
-    const fg = fill ? await solidColor(fill) : null;
-    let bg = { r: 1, g: 1, b: 1 };
-    for (let p = t.parent; p; p = p.parent) {
-      const pf = 'fills' in p && Array.isArray(p.fills) ? p.fills.find((x) => x.type === 'SOLID' && x.visible !== false) : null;
-      if (pf) {
-        bg = await solidColor(pf);
-        break;
-      }
-    }
+    const fill = topSolid(t);
+    const fc = fill ? await solidColor(fill) : null;
+    const fa = fill ? (fill.opacity === undefined ? 1 : fill.opacity) * t.opacity : 0;
+    const fg = fc ? await seen(t, fc, fa) : null;
+    const bg = await seen(t, null, 0);
     if (fg && bg) {
       const r = ratio(fg, bg);
       const need = size >= (o.largeAt || 24) ? 3 : 4.5;

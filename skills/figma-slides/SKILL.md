@@ -17,10 +17,15 @@ Check `figma.editorType`:
 
 - `slides` (a Figma Slides file): real slides. `figma_list_slides` shows what exists. Create a slide
   with `figma_create_slide` (row/col in the grid) or `figma.createSlide()` inside `figma_execute`,
-  then build its whole content in ONE `figma_execute` (the slide node is the parent, 1920 x 1080).
-  Background with `figma_set_slide_background`, transitions with `figma_set_slide_transition`
-  (DISSOLVE or SMART_ANIMATE for most decks; one style per deck), order with
-  `figma_reorder_slides`.
+  then build its whole content in ONE `figma_execute`. Background: the slide's `fills` or
+  `figma_set_slide_background`; transitions with `figma_set_slide_transition` (DISSOLVE or
+  SMART_ANIMATE for most decks; one style per deck); order with `figma_reorder_slides`.
+  - NEVER set `layoutMode` on a SLIDE node: it shrinks to hug its content and slides cannot be
+    resized back (`Cannot resize slide nodes`); the slide is then lost. Put ONE auto-layout frame
+    inside instead: `stack(slide, { name: 'body', w: 1920, h: 1080, pad: [128, 128, 160, 128],
+    gap: 48, x: 0, y: 0 })`, and build the content in `body`.
+  - Figma Slides numbers slides itself ("1", "2"...) and overwrites names you set: identify slides
+    by id and by the `body` frame's content, not by slide name.
 - `figma` (a Design file): a Section "Deck - <title>" from `newSection`; each slide is a frame
   1920 x 1080 named `01 Cover`, `02 Problem`... laid out five per row with a 160 px gap.
 - No file open: ask the user to open a Slides file (or any Design file) and run the Desktop
@@ -59,8 +64,9 @@ the reply. Never invent a statistic or a quote.
 
 - Canvas 1920 x 1080, margins 128 px (content area 1664 x 824). A footer (page number, source,
   logo) is one 24 px row pinned at bottom 64; nothing else below y 920.
-- Each slide frame is a vertical auto-layout with padding 128 for content that flows; backdrops
-  and the footer are absolute children.
+- Content flows in a vertical auto-layout (the slide frame itself in a Design file, the `body`
+  frame inside a Slides slide) with padding 128; backdrops and the footer are absolute children
+  (`T(body, '2 / 12', { size: 24, width: 1664, abs: true, x: 128, bottom: 64 })`).
 - One idea per slide. A statement beats bullets; turn lists into tables, rows of cards, a big
   number or a quote. Titles introduce the topic, in one grammar across the deck; no "It's not X,
   it's Y" drama.

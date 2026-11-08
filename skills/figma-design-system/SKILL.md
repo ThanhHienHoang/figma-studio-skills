@@ -42,7 +42,8 @@ Variables:
 - Motion tokens when the source has them: TIMING (`duration/fast` 0.15) and EASING
   (`ease/standard` cubic-bezier) types.
 - `figma_setup_design_tokens` takes at most 100 tokens and 4 modes per call: primitives first, then
-  semantic in a second call so aliases resolve. Every variable gets a description that says when to
+  semantic in a second call so aliases resolve (`"{color.teal.600}"` finds `color/teal/600`).
+  Bind a fill in code with `bindFill(node, await colorVar('accent/default', 'Semantic'))`. Every variable gets a description that says when to
   use it (`figma_batch_update_variables` or the token's `description`). Set scopes so fills offer
   only color tokens meant for fills.
 
@@ -55,7 +56,10 @@ styles for shadows, bound to variables where Figma allows.
   `Size=S|M|L`, `State=Default|Hover|Pressed|Disabled|Focus`), text and boolean and instance-swap
   properties via `figma_add_component_property`. Auto-layout inside, every fill, stroke, radius
   and gap bound to a variable, text on text styles.
-- Lay each set out with `figma_arrange_component_set`; describe it with `figma_set_description`:
+- Build variants as components (`figma.createComponent()`, auto-layout, named
+  `Type=Primary, State=Default`), then `figma.combineAsVariants(list, section)`. Lay the set out
+  with `figma_arrange_component_set` (or set `layoutWrap = 'WRAP'` with both `itemSpacing` and
+  `counterAxisSpacing`, or rows touch). Describe it with `figma_set_description`:
   first sentence says what it is for, then when not to use it and what the consumer provides.
 - Accessibility per component: text 4.5:1 in EVERY mode, 3:1 for borders of controls, focus rings
   and icons; touch targets 44 px or more; a visible focus state. Run

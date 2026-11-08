@@ -11,11 +11,17 @@ Before the first Figma call read `../_shared/figma-workflow.md` and install
 `figma_apply_animation`, `figma_manage_animation_styles`, `figma_get_animations`,
 `figma_remove_animation`, `figma_export_animation`, `figma_setup_design_tokens`.
 
-Facts about the tools (from their own descriptions): animation is per node with presets (Position,
-Scale, Rotation, Size, Opacity, Path, TextStagger) or keyframe tracks; main components cannot be
-animated, use instances or frames; motion does not show in screenshots; export takes the top-level
-frame that holds the timeline and writes MP4, GIF or WebM. Figma has no audio track: sound is
-added after export.
+Facts checked in a real file:
+- Every top-level frame owns one timeline, 2 s long by default. Set the scene length in
+  `figma_execute`: `frame.setTimelineDuration(frame.id, 5)` (the first argument is the frame id
+  string; the `timelines` property is read-only). Keyframes past the end are cut.
+- Animation is per node: presets (Position, Scale, Rotation, Size, Opacity, Path, TextStagger) or
+  keyframe tracks. Several presets stack on one node (Opacity + Position for a fade-and-rise), and
+  keyframe tracks add up per property. TextStagger with `textDelayGrouping: 'WORD'` and
+  `opacityEnabled: true` reveals a title word by word, Vietnamese included.
+- Main components cannot be animated: use instances or frames. Motion does not show in
+  screenshots. `figma_export_animation` takes the top-level frame and writes MP4, GIF or WebM.
+- Figma has no audio track: sound is added after export.
 
 ## 1. Three questions, then the film
 
@@ -31,8 +37,9 @@ Never ask about the story; decide it and say it in one line.
   least as long as reading it takes (about 0.3 s per word plus 1 s).
 - Format: 1920 x 1080 landscape, 1080 x 1920 vertical, 1080 x 1080 square. Another aspect ratio is
   a second Section built for it, never a resized copy.
-- Before the first animation: `figma_manage_animation_styles` action `list_presets` once, and
-  `figma_get_animations` on one test frame to confirm how the timeline behaves in this file.
+- Before the first animation: `figma_manage_animation_styles` action `list_presets` once for the
+  props of each preset. After animating a scene, `figma_get_animations` on it to read back what
+  was applied.
 - Motion tokens: TIMING (`duration/fast` 0.2, `duration/base` 0.5, `duration/slow` 0.9) and
   EASING (`ease/enter` EASE_OUT, `ease/exit` EASE_IN, `ease/move` EASE_IN_AND_OUT) via
   `figma_setup_design_tokens`; bind them (`durationVariableId`, `easing.variableId`).
@@ -42,7 +49,7 @@ Never ask about the story; decide it and say it in one line.
 - Section `Film - <title>`. One top-level frame per scene (`S01 Hook`, `S02 Problem`...), each its
   own timeline, laid out in a row. A very short film (under about 8 s) may be one frame.
 - Draw each scene's resting state first (layout, type, color with the shared rules), lint it,
-  screenshot at 0.5. Then animate.
+  screenshot at 0.5. Then set its timeline length and animate.
 - Animation craft:
   - Every element: enter, hold, exit. One motion idea per element; nothing moves without a reason.
   - Stagger related elements by 0.05 to 0.12 s (`timelineOffset`), text by word or line with
@@ -59,8 +66,10 @@ Never ask about the story; decide it and say it in one line.
 
 Export a draft per scene: `figma_export_animation` with `format: 'MP4'`, `fps: 24`, `scale: 0.5`,
 `outputPath` inside a work folder (for example `<working dir>/<film-slug>/draft/`). Pull frames
-with `ffmpeg -i S01.mp4 -vf fps=2 S01-%02d.png` and look at them with the Read tool: check
-readability, overlaps mid-animation, pacing. At most three rounds.
+as one contact sheet, `ffmpeg -i S01.mp4 -vf "fps=4,scale=270:-1,tile=4x2" S01-sheet.png`, and
+look at it with the Read tool (one image instead of many): check readability, overlaps
+mid-animation, pacing. A single moment: `ffmpeg -ss 4.7 -i S01.mp4 -frames:v 1 S01-end.png`.
+At most three rounds.
 
 ## 5. Final export and sound
 

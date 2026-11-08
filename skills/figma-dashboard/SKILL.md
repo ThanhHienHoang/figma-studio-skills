@@ -39,11 +39,16 @@ marks apply here.
 ## 3. Drawing charts in Figma
 
 - Each chart is a `stack` card: title (says what to read, for example "Revenue grew 12% in Q3"),
-  the plot frame (fixed size, no auto-layout), and a direct label or a small legend.
+  the plot frame (a plain `figma.createFrame()` of the plot box size, NO auto-layout, so children
+  keep the script's x / y), and a direct label or a small legend. Axis and value labels go in the
+  plot with `T(plot, text, { x, y })`; center a label under a bar after it is sized
+  (`t.x = bar.x + (bar.width - t.width) / 2`).
 - Bars: `rect` per value at the script's coordinates, 2 to 4 px radius on the data end only when it
   helps; zero baseline always.
-- Lines: one vector per series with `vectorPaths = [{ windingRule: 'NONE', data: 'M x y L x y ...' }]`,
-  stroke 2 px, round joins; mark the last point and label it.
+- Lines: one vector per series, appended to the plot, then
+  `vectorPaths = [{ windingRule: 'NONE', data: 'M x y L x y ...' }]` in the plot's own coordinates
+  (Figma re-bases the vector to its bounding box and keeps it in place), `fills = []`, stroke 2 px,
+  round joins and caps; mark the last point with a small ellipse and label it.
 - Axes and grid: hairlines (1 px) in a muted token, few ticks, labels at least 12 px. Direct labels
   beat legends.
 - Colors from the dataviz palette when available (else the file's system), bound to Variables; series that must be

@@ -17,6 +17,17 @@ configured; tell the user and stop.
 - `figma_get_status`, then `figma_list_open_files`. Work in the file the user names, else the
   active one. Nothing listed: ask the user to open Figma Desktop, open (or create) the file and run
   the Desktop Bridge plugin, then wait.
+- The user asked for a new file: `open -a Figma "https://www.figma.com/file/new"` (Design) or
+  `open -a Figma "https://www.figma.com/slides/new"` (Slides) on macOS, then start the Desktop
+  Bridge plugin in it (Plugins > Development > Figma Desktop Bridge; ask the user if you cannot
+  click menus), `figma_list_open_files`, and `figma_navigate` to its url with `lock: true`.
+- Keep the target file's tab IN FRONT in Figma Desktop. Figma throttles plugins in background
+  tabs: calls stall, time out, and then keep running later, so a retry draws everything twice and
+  stray layers appear. With several files open, bring the target forward before drawing
+  (`open -a Figma "<file url>"` on macOS). After any timeout: list what exists, remove partial
+  work, then retry.
+- Several connected files: `figma_navigate` with `lock: true` decides which one tools hit; tools
+  that take `fileKey` can target another file without switching.
 - Check the editor type once: `figma_execute` with `return figma.editorType` (`figma` = Design
   file, `slides` = Figma Slides, `figjam` = FigJam). Each skill says which it needs.
 - Survey in ONE `figma_execute`: pages, then the current page's top-level nodes as compact
@@ -26,13 +37,17 @@ configured; tell the user and stop.
 
 - Do not edit, move or delete anything the user made unless they asked for that change.
 - New work goes in a NEW Section placed below everything on the page (`newSection` in the
-  snippets), one Section per deliverable, named for it ("Deck - Q3 review").
+  snippets), one Section per deliverable, named for it ("Deck - Q3 review"). Place its children
+  from (80, 80) and finish with `fitSection(section)`, which leaves the same 80 px on the right and
+  bottom. Section and page colors follow the user's Figma theme (dark grey in dark mode): give
+  every artboard its own background.
 - Before revising, read the current state of the nodes you will touch: the user may have edited
   them by hand since your last call. Keep node names stable so later edits can find them.
 
 ## 4. Install the snippets (once per session)
 
 Read `<shared>/figma-snippets.js` and send the whole file as one `figma_execute` (timeout 15000).
+Each file runs its own plugin instance: install the snippets in every file you draw in.
 It installs `globalThis.__bf` with: `hex`, `ratio`, `fonts`, `T` (text), `stack` (auto-layout
 frame), `rect`, `newSection`, `fitSection`, `colorVar`, `bindFill`, `lint`. Later calls start with
 `const { T, stack, rect, hex } = globalThis.__bf;`. A plugin reload clears it: install again when
@@ -41,7 +56,10 @@ frame), `rect`, `newSection`, `fitSection`, `colorVar`, `bindFill`, `lint`. Late
 ## 5. Drawing rules
 
 - Fewer, bigger calls: build one whole slide / artboard / component per `figma_execute` and
-  return the created ids. Every call re-sends the whole context.
+  return the created ids. Every call re-sends the whole context. Pass `timeout: 60000` for big
+  builds.
+- Absolute children: `T`, `stack` and `rect` take `abs: true` (pinned inside an auto-layout
+  parent), `x`, `y` and `bottom` (distance from the parent's bottom edge).
 - Fonts: check availability first (`await __bf.fonts(/^(Inter|Space Grotesk)$/)`). For
   Vietnamese copy, pick families with full Vietnamese diacritics (for example Be Vietnam Pro,
   Inter, Manrope, Montserrat, Roboto, Noto Sans/Serif) and look at a screenshot of real copy.
@@ -67,8 +85,10 @@ frame), `rect`, `newSection`, `fitSection`, `colorVar`, `bindFill`, `lint`. Late
 
 1. `return await globalThis.__bf.lint('<nodeId>', { minSize })` reports text contrast below 4.5:1
    (3:1 for large text), text under `minSize`, emoji, and text wider than its clipping parent.
-   Its background check walks parent fills only: text over an image or a sibling shape still
-   needs your eye on the screenshot. `figma_lint_design` is a second opinion when available.
+   It composites the text through its ancestors' fills and opacities (a Disabled state at 45%
+   opacity is caught), but not sibling shapes or images behind it: those need your eye on the
+   screenshot. Disabled controls are exempt from WCAG contrast; keep them legible anyway and
+   mention it rather than forcing full contrast. `figma_lint_design` is a second opinion when available.
 2. Fix everything it reports, then `figma_take_screenshot` of the node (scale 0.5 for big frames,
    0.25 for a whole section). Judge: alignment, spacing rhythm, hierarchy, overflow, orphan words.
 3. Colors that must be told apart also differ in lightness, not hue alone; prefer blue/orange to
