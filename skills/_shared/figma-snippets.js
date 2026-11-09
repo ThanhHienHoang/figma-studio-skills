@@ -181,12 +181,17 @@ function bindFill(node, variable) {
   return node;
 }
 
-// Resolve a paint color, following a bound variable in its default mode when needed.
-async function solidColor(p) {
+// Resolve a paint color. A bound variable resolves in the mode the node actually uses (a frame
+// set to Dark resolves Dark values); without a node, the collection's default mode.
+async function solidColor(p, node) {
   if (!p || p.type !== 'SOLID' || p.visible === false) return null;
   const bound = p.boundVariables && p.boundVariables.color;
   if (bound) {
     const v = await figma.variables.getVariableByIdAsync(bound.id);
+    if (v && node) {
+      const res = v.resolveForConsumer(node);
+      if (res && res.value && typeof res.value === 'object' && 'r' in res.value) return res.value;
+    }
     if (v) {
       const col = await figma.variables.getVariableCollectionByIdAsync(v.variableCollectionId);
       let val = v.valuesByMode[col.defaultModeId];
@@ -223,7 +228,7 @@ async function seen(node, c, a) {
   for (let p = node.parent; p && p.type !== 'PAGE' && p.type !== 'DOCUMENT'; p = p.parent) {
     const pf = topSolid(p);
     if (pf) {
-      const fc = await solidColor(pf);
+      const fc = await solidColor(pf, p);
       cur = over(cur.c, cur.a, fc, pf.opacity === undefined ? 1 : pf.opacity);
     }
     if ('opacity' in p) cur.a *= p.opacity;
@@ -232,8 +237,8 @@ async function seen(node, c, a) {
   return over(cur.c, cur.a, pageBg ? pageBg.color : { r: 1, g: 1, b: 1 }, 1).c;
 }
 
-// Checks text contrast (opacity included), minimum size, emoji and overflow past a clipping
-// ancestor.
+// Checks text contrast (opacity and variable modes included), minimum size, emoji and overflow
+// past a clipping ancestor. o: minSize, largeAt, iconFont (regex of icon font families).
 async function lint(rootId, o = {}) {
   const minSize = o.minSize || 12;
   const root = await figma.getNodeByIdAsync(rootId);
@@ -245,13 +250,15 @@ async function lint(rootId, o = {}) {
     const size = typeof t.fontSize === 'number' ? t.fontSize : minSize;
     const label = t.id + ' "' + t.characters.slice(0, 30) + '"';
     const fill = topSolid(t);
-    const fc = fill ? await solidColor(fill) : null;
+    const fc = fill ? await solidColor(fill, t) : null;
     const fa = fill ? (fill.opacity === undefined ? 1 : fill.opacity) * t.opacity : 0;
     const fg = fc ? await seen(t, fc, fa) : null;
     const bg = await seen(t, null, 0);
     if (fg && bg) {
       const r = ratio(fg, bg);
-      const need = size >= (o.largeAt || 24) ? 3 : 4.5;
+      // Icon-font glyphs (Material Symbols, icon fonts) are non-text: 3:1 like large text.
+      const isIcon = typeof t.fontName === 'object' && (o.iconFont || /Symbols|Icons/).test(t.fontName.family);
+      const need = isIcon || size >= (o.largeAt || 24) ? 3 : 4.5;
       if (r < need) out.push('contrast ' + r.toFixed(2) + ' < ' + need + ': ' + label);
     }
     if (size < minSize) out.push('size ' + size + ' < ' + minSize + ': ' + label);

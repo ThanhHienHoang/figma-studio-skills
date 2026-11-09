@@ -49,9 +49,11 @@ configured; tell the user and stop.
 Read `<shared>/figma-snippets.js` and send the whole file as one `figma_execute` (timeout 15000).
 Each file runs its own plugin instance: install the snippets in every file you draw in.
 It installs `globalThis.__bf` with: `hex`, `ratio`, `fonts`, `T` (text), `stack` (auto-layout
-frame), `rect`, `newSection`, `fitSection`, `colorVar`, `bindFill`, `lint`. Later calls start with
-`const { T, stack, rect, hex } = globalThis.__bf;`. A plugin reload clears it: install again when
-`globalThis.__bf` is undefined.
+frame), `rect`, `newSection`, `fitSection`, `colorVar`, `bindFill`, `lint`. Every later call starts
+with the guard `if (!globalThis.__bf) return 'NEED_INSTALL';` and then
+`const { T, stack, rect, hex } = globalThis.__bf;`. The plugin can reconnect on its own (it did
+right after being started, which wiped the helpers): on `NEED_INSTALL` install again and repeat
+the call. Without the guard the call dies with "cannot convert to object" before drawing.
 
 ## 5. Drawing rules
 
@@ -70,7 +72,12 @@ frame), `rect`, `newSection`, `fitSection`, `colorVar`, `bindFill`, `lint`. Late
 - Text boxes get a fixed width and auto height (`T(..., { width })`). Nothing shrinks to fit: when
   content does not fit, split it.
 - Colors: through Variables when the file has a system or the skill creates one (`colorVar`,
-  `bindFill`); raw hex only for one-off sketches the user called throwaway.
+  `bindFill`); raw hex only for one-off sketches the user called throwaway. A dark (or other)
+  mode for one frame: `frame.setExplicitVariableModeForCollection(collection, modeId)`; `lint`
+  then checks contrast in that mode.
+- Icons: an installed icon font such as Material Symbols Rounded, written as ligature text
+  (`T(parent, 'bedtime', { family: 'Material Symbols Rounded', size: 24 })`); check it is
+  installed with `fonts(/^Material Symbols/)`. `lint` holds icon glyphs to 3:1.
 - 4 px spacing grid. Text at least 12 px on screens (24 px on slides). Touch targets at least
   44 x 44 (iOS) or 48 x 48 (Android, web).
 - Images: only files the user gave or files from their project. Insert with `figma_set_image_fill`
